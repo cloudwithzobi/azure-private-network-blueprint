@@ -91,3 +91,31 @@ variable "tags" {
     project     = "hub-spoke-networking"
   }
 }
+
+variable "storage_account_name" {
+  description = "Name of the storage account (must be globally unique, 3-24 chars, lowercase alphanumeric)"
+  type        = string
+}
+
+variable "sql_server_name" {
+  description = "Name of the SQL logical server (must be globally unique, lowercase)"
+  type        = string
+}
+
+variable "sql_database_name" {
+  description = "Name of the SQL database"
+  type        = string
+  default     = "sqldb-phase2"
+}
+
+variable "sql_admin_username" {
+  description = "SQL Server admin username"
+  type        = string
+  default     = "sqladmin"
+}
+
+variable "sql_admin_password" {
+  description = "SQL Server admin password (16+ chars, mixed case, number, symbol)"
+  type        = string
+  sensitive   = true
+}

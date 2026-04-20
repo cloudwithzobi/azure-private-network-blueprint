@@ -143,3 +143,108 @@ resource "azurerm_virtual_network_peering" "dev_to_hub" {
   allow_gateway_transit        = false
   use_remote_gateways          = false
 }
+
+resource "azurerm_storage_account" "main" {
+  name                     = var.storage_account_name
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+  min_tls_version          = "TLS1_2"
+
+  public_network_access_enabled = false
+
+  tags = var.tags
+}
+
+resource "azurerm_mssql_server" "main" {
+  name                         = var.sql_server_name
+  resource_group_name          = azurerm_resource_group.main.name
+  location                     = azurerm_resource_group.main.location
+  version                      = "12.0"
+  administrator_login          = var.sql_admin_username
+  administrator_login_password = var.sql_admin_password
+  minimum_tls_version          = "1.2"
+
+  public_network_access_enabled = false
+
+  tags = var.tags
+}
+
+resource "azurerm_mssql_database" "main" {
+  name      = var.sql_database_name
+  server_id = azurerm_mssql_server.main.id
+  sku_name  = "Basic"
+
+  tags = var.tags
+}
+
+resource "azurerm_private_dns_zone" "blob" {
+  name                = "privatelink.blob.core.windows.net"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+}
+
+resource "azurerm_private_dns_zone" "sql" {
+  name                = "privatelink.database.windows.net"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "blob_to_prod" {
+  name                  = "link-blob-to-prod"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.blob.name
+  virtual_network_id    = azurerm_virtual_network.spoke_prod.id
+  tags                  = var.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "sql_to_dev" {
+  name                  = "link-sql-to-dev"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.sql.name
+  virtual_network_id    = azurerm_virtual_network.spoke_dev.id
+  tags                  = var.tags
+}
+
+resource "azurerm_private_endpoint" "storage_blob" {
+  name                = "pe-storage-blob"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = azurerm_subnet.spoke_prod_workload.id
+
+  private_service_connection {
+    name                           = "psc-storage-blob"
+    private_connection_resource_id = azurerm_storage_account.main.id
+    subresource_names              = ["blob"]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "pdz-group-blob"
+    private_dns_zone_ids = [azurerm_private_dns_zone.blob.id]
+  }
+
+  tags = var.tags
+}
+
+resource "azurerm_private_endpoint" "sql" {
+  name                = "pe-sql"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = azurerm_subnet.spoke_dev_workload.id
+
+  private_service_connection {
+    name                           = "psc-sql"
+    private_connection_resource_id = azurerm_mssql_server.main.id
+    subresource_names              = ["sqlServer"]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "pdz-group-sql"
+    private_dns_zone_ids = [azurerm_private_dns_zone.sql.id]
+  }
+
+  tags = var.tags
+}
