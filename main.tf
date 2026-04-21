@@ -152,7 +152,13 @@ resource "azurerm_storage_account" "main" {
   account_replication_type = "LRS"
   min_tls_version          = "TLS1_2"
 
-  public_network_access_enabled = false
+  public_network_access_enabled   = false
+  allow_nested_items_to_be_public = false
+
+  network_rules {
+    default_action = "Deny"
+    bypass         = ["AzureServices"]
+  }
 
   tags = var.tags
 }
@@ -244,6 +250,74 @@ resource "azurerm_private_endpoint" "sql" {
   private_dns_zone_group {
     name                 = "pdz-group-sql"
     private_dns_zone_ids = [azurerm_private_dns_zone.sql.id]
+  }
+
+  tags = var.tags
+}
+
+resource "azurerm_public_ip" "test_vm" {
+  name                = "pip-test-vm-prod"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = var.tags
+}
+
+resource "azurerm_network_security_rule" "allow_ssh_to_prod" {
+  name                        = "Allow-SSH-Inbound"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "22"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.main.name
+  network_security_group_name = azurerm_network_security_group.spoke_prod_workload.name
+}
+
+resource "azurerm_network_interface" "test_vm" {
+  name                = "nic-test-vm-prod"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.spoke_prod_workload.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.test_vm.id
+  }
+}
+
+resource "azurerm_linux_virtual_machine" "test_vm" {
+  name                = "vm-test-prod"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  size                = "Standard_B2als_v2"
+  admin_username      = "azureuser"
+
+  network_interface_ids = [
+    azurerm_network_interface.test_vm.id,
+  ]
+
+  admin_ssh_key {
+    username   = "azureuser"
+    public_key = file("~/.ssh/azure_phase1.pub")
+  }
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "0001-com-ubuntu-server-jammy"
+    sku       = "22_04-lts-gen2"
+    version   = "latest"
   }
 
   tags = var.tags
